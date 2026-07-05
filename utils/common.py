@@ -5,9 +5,10 @@ import logging
 from telethon.tl.types import ChannelParticipantsAdmins
 from ai import get_ai_provider
 from enums.enums import ForwardMode
-from models.models import Chat, ForwardRule
+from models.models import Chat, ForwardRule, ForwardedMessageMap, get_session
 import re
 import telethon
+from sqlalchemy import text
 from utils.auto_delete import respond_and_delete,reply_and_delete,async_delete_user_message
 from datetime import datetime, timedelta
 
@@ -366,6 +367,68 @@ async def check_and_clean_chats(session, rule=None):
         logger.error(f'检查和清理聊天记录时出错: {str(e)}')
         session.rollback()
         return 0
+
+
+async def resolve_reply_target(rule, source_chat_telegram_id, source_msg_id):
+    session = get_session()
+    try:
+        row = session.query(ForwardedMessageMap).filter(
+            ForwardedMessageMap.rule_id == rule.id,
+            ForwardedMessageMap.source_chat_telegram_id == str(source_chat_telegram_id),
+            ForwardedMessageMap.source_message_id == int(source_msg_id),
+        ).first()
+        if row:
+            return row.target_message_id
+        return None
+    finally:
+        session.close()
+
+
+async def record_forwarded_message(rule_id, source_chat_telegram_id, source_msg_id,
+                                   target_chat_telegram_id, target_msg_id,
+                                   source_author_id=None, source_author_name=None):
+    session = get_session()
+    try:
+        session.execute(text("""
+            INSERT INTO forwarded_message_map (
+                rule_id,
+                source_chat_id,
+                source_chat_telegram_id,
+                source_message_id,
+                target_chat_id,
+                target_chat_telegram_id,
+                target_message_id,
+                source_author_id,
+                source_author_name
+            ) VALUES (
+                :rule_id,
+                :source_chat_id,
+                :source_chat_telegram_id,
+                :source_message_id,
+                :target_chat_id,
+                :target_chat_telegram_id,
+                :target_message_id,
+                :source_author_id,
+                :source_author_name
+            )
+        """), {
+            'rule_id': int(rule_id),
+            'source_chat_id': int(source_chat_telegram_id),
+            'source_chat_telegram_id': str(source_chat_telegram_id),
+            'source_message_id': int(source_msg_id),
+            'target_chat_id': int(target_chat_telegram_id),
+            'target_chat_telegram_id': str(target_chat_telegram_id),
+            'target_message_id': int(target_msg_id),
+            'source_author_id': source_author_id,
+            'source_author_name': source_author_name,
+        })
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        logger.error(f'记录转发映射失败: {e}')
+    finally:
+        session.close()
+
 
 def get_admin_list():
     """获取管理员ID列表，如果ADMINS为空则使用USER_ID"""

@@ -93,6 +93,29 @@ class ForwardRule(Base):
     rule_syncs = relationship('RuleSync', back_populates='rule', cascade="all, delete-orphan")
     push_config = relationship('PushConfig', uselist=False, back_populates='rule', cascade="all, delete-orphan")
 
+    # 引用转发相关字段
+    enable_reply_forward = Column(Boolean, default=False, nullable=False)
+    reply_forward_ai_check = Column(Boolean, default=True, nullable=False)
+    forwarded_map = relationship('ForwardedMessageMap', back_populates='rule', cascade="all, delete-orphan")
+
+class ForwardedMessageMap(Base):
+    __tablename__ = 'forwarded_message_map'
+    id = Column(Integer, primary_key=True)
+    rule_id = Column(Integer, ForeignKey('forward_rules.id', ondelete='CASCADE'), nullable=False)
+    source_chat_telegram_id = Column(String, nullable=False)
+    source_message_id = Column(Integer, nullable=False)
+    target_chat_telegram_id = Column(String, nullable=False)
+    target_message_id = Column(Integer, nullable=False)
+    source_author_id = Column(Integer, nullable=True)
+    source_author_name = Column(String, nullable=True)
+
+    rule = relationship('ForwardRule', back_populates='forwarded_map')
+
+    __table_args__ = (
+        UniqueConstraint('rule_id', 'source_chat_telegram_id', 'source_message_id',
+                         name='unique_rule_source_message'),
+    )
+
 class Keyword(Base):
     __tablename__ = 'keywords'
 
@@ -318,6 +341,12 @@ def migrate_db(engine):
                 
     except Exception as e:
         logging.error(f'迁移媒体类型数据时出错: {str(e)}')
+    finally:
+        # 保证映射表创建
+        if 'forwarded_message_map' not in existing_tables:
+            logging.info("创建forwarded_message_map表...")
+            ForwardedMessageMap.__table__.create(engine)
+        
     
             
 
@@ -327,6 +356,12 @@ def migrate_db(engine):
 
     # 检查Keyword表的现有列
     keyword_columns = {column['name'] for column in inspector.get_columns('keywords')}
+
+    forwarded_message_map_columns = set()
+    if 'forwarded_message_map' in existing_tables:
+        forwarded_message_map_columns = {
+            column['name'] for column in inspector.get_columns('forwarded_message_map')
+        }
 
     # 需要添加的新列及其默认值
     forward_rules_new_columns = {
@@ -358,6 +393,8 @@ def migrate_db(engine):
         'enable_reverse_whitelist': 'ALTER TABLE forward_rules ADD COLUMN enable_reverse_whitelist BOOLEAN DEFAULT FALSE',
         'only_rss': 'ALTER TABLE forward_rules ADD COLUMN only_rss BOOLEAN DEFAULT FALSE',
         'enable_sync': 'ALTER TABLE forward_rules ADD COLUMN enable_sync BOOLEAN DEFAULT FALSE',
+        'enable_reply_forward': 'ALTER TABLE forward_rules ADD COLUMN enable_reply_forward BOOLEAN DEFAULT FALSE',
+        'reply_forward_ai_check': 'ALTER TABLE forward_rules ADD COLUMN reply_forward_ai_check BOOLEAN DEFAULT TRUE',
         'userinfo_template': 'ALTER TABLE forward_rules ADD COLUMN userinfo_template VARCHAR DEFAULT "**{name}**"',
         'time_template': 'ALTER TABLE forward_rules ADD COLUMN time_template VARCHAR DEFAULT "{time}"',
         'original_link_template': 'ALTER TABLE forward_rules ADD COLUMN original_link_template VARCHAR DEFAULT "原始连接：{original_link}"',
@@ -369,6 +406,13 @@ def migrate_db(engine):
 
     keywords_new_columns = {
         'is_blacklist': 'ALTER TABLE keywords ADD COLUMN is_blacklist BOOLEAN DEFAULT TRUE',
+    }
+
+    forwarded_message_map_new_columns = {
+        'source_chat_telegram_id': 'ALTER TABLE forwarded_message_map ADD COLUMN source_chat_telegram_id VARCHAR',
+        'target_chat_telegram_id': 'ALTER TABLE forwarded_message_map ADD COLUMN target_chat_telegram_id VARCHAR',
+        'source_author_id': 'ALTER TABLE forwarded_message_map ADD COLUMN source_author_id INTEGER',
+        'source_author_name': 'ALTER TABLE forwarded_message_map ADD COLUMN source_author_name VARCHAR',
     }
 
     # 添加缺失的列
@@ -391,6 +435,46 @@ def migrate_db(engine):
                     logging.info(f'已添加列: {column}')
                 except Exception as e:
                     logging.error(f'添加列 {column} 时出错: {str(e)}')
+
+        for column, sql in forwarded_message_map_new_columns.items():
+            if column not in forwarded_message_map_columns:
+                try:
+                    connection.execute(text(sql))
+                    logging.info(f'已添加forwarded_message_map列: {column}')
+                except Exception as e:
+                    logging.error(f'添加forwarded_message_map列 {column} 时出错: {str(e)}')
+
+        if forwarded_message_map_columns:
+            try:
+                if 'source_chat_id' in forwarded_message_map_columns and 'source_chat_telegram_id' not in forwarded_message_map_columns:
+                    connection.execute(text("""
+                        UPDATE forwarded_message_map
+                        SET source_chat_telegram_id = CAST(source_chat_id AS TEXT)
+                        WHERE source_chat_telegram_id IS NULL
+                    """))
+                if 'target_chat_id' in forwarded_message_map_columns and 'target_chat_telegram_id' not in forwarded_message_map_columns:
+                    connection.execute(text("""
+                        UPDATE forwarded_message_map
+                        SET target_chat_telegram_id = CAST(target_chat_id AS TEXT)
+                        WHERE target_chat_telegram_id IS NULL
+                    """))
+            except Exception as e:
+                logging.error(f'回填forwarded_message_map数据时出错: {str(e)}')
+
+        try:
+            result = connection.execute(text("""
+                SELECT name FROM sqlite_master
+                WHERE type='index' AND name='unique_rule_source_message'
+            """))
+            index_exists = result.fetchone() is not None
+            if not index_exists:
+                connection.execute(text("""
+                    CREATE UNIQUE INDEX unique_rule_source_message
+                    ON forwarded_message_map (rule_id, source_chat_telegram_id, source_message_id)
+                """))
+                logging.info('已创建forwarded_message_map唯一索引: unique_rule_source_message')
+        except Exception as e:
+            logging.error(f'创建forwarded_message_map唯一索引时出错: {str(e)}')
 
         #先检查forward_rules表的列的forward_mode是否存在
         if 'forward_mode' not in forward_rules_columns:
