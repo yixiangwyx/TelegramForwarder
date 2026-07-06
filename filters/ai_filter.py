@@ -36,6 +36,10 @@ class AIFilter(BaseFilter):
         event = context.event
 
         try:
+            if getattr(context, "skip_ai_filter", False):
+                logger.info("引用消息命中已转发映射，跳过AI过滤")
+                return True
+
             if not rule.is_ai:
                 logger.info("AI处理未开启，返回原始消息")
                 return True

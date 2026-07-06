@@ -25,6 +25,9 @@ class KeywordFilter(BaseFilter):
         message_text = context.message_text
         event = context.event
 
+        if getattr(context, "skip_keyword_filter", False):
+            logger.info("引用消息命中已转发映射，跳过关键词过滤")
+            return True
         
         should_forward = await check_keywords(rule, message_text, event)
         

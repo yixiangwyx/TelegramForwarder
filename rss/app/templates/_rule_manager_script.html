@@ -1,0 +1,354 @@
+<script>
+    const ruleSummaries = JSON.parse('{{ forward_rules|tojson }}');
+    const knownChats = JSON.parse('{{ known_chats|tojson }}');
+    let currentRuleKeywords = [];
+    let currentRuleReplaceRules = [];
+    let pendingDeleteRuleId = null;
+
+    function findRuleSummary(ruleId) {
+        return ruleSummaries.find(rule => rule.id === Number(ruleId));
+    }
+
+    function setChecked(id, value) {
+        document.getElementById(id).checked = !!value;
+    }
+
+    function populateSyncRuleOptions(currentRuleId, selectedIds) {
+        const select = document.getElementById('sync_rule_ids');
+        select.innerHTML = '';
+
+        ruleSummaries
+            .filter(rule => rule.id !== Number(currentRuleId))
+            .forEach(rule => {
+                const option = document.createElement('option');
+                option.value = rule.id;
+                option.textContent = `${rule.id} - ${rule.source_chat?.name || '未知源'} -> ${rule.target_chat?.name || '未知目标'}`;
+                option.selected = selectedIds.includes(rule.id);
+                select.appendChild(option);
+            });
+    }
+
+    function renderRuleKeywords() {
+        const tbody = document.getElementById('ruleKeywordsList');
+        tbody.innerHTML = '';
+
+        if (currentRuleKeywords.length === 0) {
+            const row = document.createElement('tr');
+            row.innerHTML = '<td colspan="4" class="text-center">暂无关键字</td>';
+            tbody.appendChild(row);
+            return;
+        }
+
+        currentRuleKeywords.forEach((item, index) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><code>${item.keyword}</code></td>
+                <td>${item.is_blacklist ? '黑名单' : '白名单'}</td>
+                <td>${item.is_regex ? '正则' : '普通'}</td>
+                <td>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="removeRuleKeyword(${index})">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+
+    function renderRuleReplaceRules() {
+        const tbody = document.getElementById('ruleReplaceRulesList');
+        tbody.innerHTML = '';
+
+        if (currentRuleReplaceRules.length === 0) {
+            const row = document.createElement('tr');
+            row.innerHTML = '<td colspan="3" class="text-center">暂无替换规则</td>';
+            tbody.appendChild(row);
+            return;
+        }
+
+        currentRuleReplaceRules.forEach((item, index) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><code>${item.pattern}</code></td>
+                <td><code>${item.content || ''}</code></td>
+                <td>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="removeRuleReplaceRule(${index})">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+
+    function clearRuleForm() {
+        document.getElementById('ruleModalTitle').textContent = '新建转发规则';
+        document.getElementById('forward_rule_id').value = '';
+        document.getElementById('source_chat_id').value = '';
+        document.getElementById('target_chat_id').value = '';
+        document.getElementById('source_manual_chat_id').value = '';
+        document.getElementById('source_manual_chat_name').value = '';
+        document.getElementById('target_manual_chat_id').value = '';
+        document.getElementById('target_manual_chat_name').value = '';
+        document.getElementById('forward_mode').value = 'BLACKLIST';
+        document.getElementById('add_mode').value = 'BLACKLIST';
+        document.getElementById('handle_mode').value = 'FORWARD';
+        document.getElementById('message_mode').value = 'MARKDOWN';
+        document.getElementById('is_preview').value = 'FOLLOW';
+        document.getElementById('delay_seconds').value = '5';
+        document.getElementById('ai_model').value = '';
+        document.getElementById('summary_time').value = '07:00';
+        document.getElementById('ai_prompt').value = '';
+        document.getElementById('summary_prompt').value = '';
+        document.getElementById('rule_keyword_input').value = '';
+        document.getElementById('rule_keyword_mode').value = 'whitelist';
+        document.getElementById('rule_keyword_regex').checked = false;
+        document.getElementById('rule_replace_pattern').value = '';
+        document.getElementById('rule_replace_content').value = '';
+
+        setChecked('enable_rule', true);
+        setChecked('use_bot', true);
+        setChecked('is_replace', false);
+        setChecked('is_filter_user_info', false);
+        setChecked('is_original_link', false);
+        setChecked('is_original_sender', false);
+        setChecked('is_original_time', false);
+        setChecked('is_delete_original', false);
+        setChecked('enable_comment_button', false);
+        setChecked('enable_delay', false);
+        setChecked('only_rss', false);
+        setChecked('enable_sync', false);
+        setChecked('is_ai', false);
+        setChecked('enable_ai_upload_image', false);
+        setChecked('is_keyword_after_ai', false);
+        setChecked('is_summary', false);
+        setChecked('enable_reply_forward', false);
+        setChecked('reply_forward_ai_check', true);
+
+        currentRuleKeywords = [];
+        currentRuleReplaceRules = [];
+        populateSyncRuleOptions(null, []);
+        renderRuleKeywords();
+        renderRuleReplaceRules();
+    }
+
+    function addRuleKeyword() {
+        const keyword = document.getElementById('rule_keyword_input').value.trim();
+        const mode = document.getElementById('rule_keyword_mode').value;
+        const isRegex = document.getElementById('rule_keyword_regex').checked;
+
+        if (!keyword) {
+            alert('请输入关键字或正则表达式');
+            return;
+        }
+
+        const exists = currentRuleKeywords.some(item =>
+            item.keyword === keyword &&
+            item.is_blacklist === (mode === 'blacklist') &&
+            item.is_regex === isRegex
+        );
+
+        if (exists) {
+            alert('相同的关键字配置已存在');
+            return;
+        }
+
+        currentRuleKeywords.push({
+            keyword,
+            is_blacklist: mode === 'blacklist',
+            is_regex: isRegex,
+        });
+
+        document.getElementById('rule_keyword_input').value = '';
+        document.getElementById('rule_keyword_regex').checked = false;
+        renderRuleKeywords();
+    }
+
+    function removeRuleKeyword(index) {
+        currentRuleKeywords.splice(index, 1);
+        renderRuleKeywords();
+    }
+
+    function addRuleReplaceRule() {
+        const pattern = document.getElementById('rule_replace_pattern').value.trim();
+        const content = document.getElementById('rule_replace_content').value;
+
+        if (!pattern) {
+            alert('请输入匹配规则');
+            return;
+        }
+
+        const exists = currentRuleReplaceRules.some(item => item.pattern === pattern && item.content === content);
+        if (exists) {
+            alert('相同的替换规则已存在');
+            return;
+        }
+
+        currentRuleReplaceRules.push({ pattern, content });
+        document.getElementById('rule_replace_pattern').value = '';
+        document.getElementById('rule_replace_content').value = '';
+        renderRuleReplaceRules();
+    }
+
+    function removeRuleReplaceRule(index) {
+        currentRuleReplaceRules.splice(index, 1);
+        renderRuleReplaceRules();
+    }
+
+    async function editRule(ruleId) {
+        const response = await fetch(`/rss/rule/${ruleId}`);
+        const data = await response.json();
+
+        if (!data.success) {
+            alert(data.message || '加载规则失败');
+            return;
+        }
+
+        const rule = data.rule;
+        document.getElementById('ruleModalTitle').textContent = `编辑转发规则 #${rule.id}`;
+        document.getElementById('forward_rule_id').value = rule.id;
+        document.getElementById('source_chat_id').value = rule.source_chat_id || '';
+        document.getElementById('target_chat_id').value = rule.target_chat_id || '';
+        document.getElementById('source_manual_chat_id').value = '';
+        document.getElementById('source_manual_chat_name').value = '';
+        document.getElementById('target_manual_chat_id').value = '';
+        document.getElementById('target_manual_chat_name').value = '';
+        document.getElementById('forward_mode').value = rule.forward_mode;
+        document.getElementById('add_mode').value = rule.add_mode;
+        document.getElementById('handle_mode').value = rule.handle_mode;
+        document.getElementById('message_mode').value = rule.message_mode;
+        document.getElementById('is_preview').value = rule.is_preview;
+        document.getElementById('delay_seconds').value = rule.delay_seconds ?? 5;
+        document.getElementById('ai_model').value = rule.ai_model || '';
+        document.getElementById('summary_time').value = rule.summary_time || '07:00';
+        document.getElementById('ai_prompt').value = rule.ai_prompt || '';
+        document.getElementById('summary_prompt').value = rule.summary_prompt || '';
+
+        setChecked('enable_rule', rule.enable_rule);
+        setChecked('use_bot', rule.use_bot);
+        setChecked('is_replace', rule.is_replace);
+        setChecked('is_filter_user_info', rule.is_filter_user_info);
+        setChecked('is_original_link', rule.is_original_link);
+        setChecked('is_original_sender', rule.is_original_sender);
+        setChecked('is_original_time', rule.is_original_time);
+        setChecked('is_delete_original', rule.is_delete_original);
+        setChecked('enable_comment_button', rule.enable_comment_button);
+        setChecked('enable_delay', rule.enable_delay);
+        setChecked('only_rss', rule.only_rss);
+        setChecked('enable_sync', rule.enable_sync);
+        setChecked('is_ai', rule.is_ai);
+        setChecked('enable_ai_upload_image', rule.enable_ai_upload_image);
+        setChecked('is_keyword_after_ai', rule.is_keyword_after_ai);
+        setChecked('is_summary', rule.is_summary);
+        setChecked('enable_reply_forward', rule.enable_reply_forward);
+        setChecked('reply_forward_ai_check', rule.reply_forward_ai_check);
+
+        currentRuleKeywords = rule.keywords || [];
+        currentRuleReplaceRules = rule.replace_rules || [];
+        populateSyncRuleOptions(rule.id, rule.sync_rule_ids || []);
+        renderRuleKeywords();
+        renderRuleReplaceRules();
+
+        new bootstrap.Modal(document.getElementById('ruleModal')).show();
+    }
+
+    async function saveRule() {
+        const payload = {
+            rule_id: document.getElementById('forward_rule_id').value || null,
+            source_chat_id: document.getElementById('source_chat_id').value || null,
+            target_chat_id: document.getElementById('target_chat_id').value || null,
+            source_manual_chat_id: document.getElementById('source_manual_chat_id').value.trim() || null,
+            source_manual_chat_name: document.getElementById('source_manual_chat_name').value.trim() || null,
+            target_manual_chat_id: document.getElementById('target_manual_chat_id').value.trim() || null,
+            target_manual_chat_name: document.getElementById('target_manual_chat_name').value.trim() || null,
+            enable_rule: document.getElementById('enable_rule').checked,
+            forward_mode: document.getElementById('forward_mode').value,
+            add_mode: document.getElementById('add_mode').value,
+            use_bot: document.getElementById('use_bot').checked,
+            message_mode: document.getElementById('message_mode').value,
+            is_preview: document.getElementById('is_preview').value,
+            handle_mode: document.getElementById('handle_mode').value,
+            is_replace: document.getElementById('is_replace').checked,
+            is_original_link: document.getElementById('is_original_link').checked,
+            is_original_sender: document.getElementById('is_original_sender').checked,
+            is_original_time: document.getElementById('is_original_time').checked,
+            is_delete_original: document.getElementById('is_delete_original').checked,
+            is_filter_user_info: document.getElementById('is_filter_user_info').checked,
+            enable_comment_button: document.getElementById('enable_comment_button').checked,
+            enable_delay: document.getElementById('enable_delay').checked,
+            delay_seconds: document.getElementById('delay_seconds').value || 5,
+            only_rss: document.getElementById('only_rss').checked,
+            enable_sync: document.getElementById('enable_sync').checked,
+            is_ai: document.getElementById('is_ai').checked,
+            ai_model: document.getElementById('ai_model').value,
+            ai_prompt: document.getElementById('ai_prompt').value,
+            enable_ai_upload_image: document.getElementById('enable_ai_upload_image').checked,
+            is_keyword_after_ai: document.getElementById('is_keyword_after_ai').checked,
+            is_summary: document.getElementById('is_summary').checked,
+            summary_time: document.getElementById('summary_time').value,
+            summary_prompt: document.getElementById('summary_prompt').value,
+            enable_reply_forward: document.getElementById('enable_reply_forward').checked,
+            reply_forward_ai_check: document.getElementById('reply_forward_ai_check').checked,
+            keywords: currentRuleKeywords,
+            replace_rules: currentRuleReplaceRules,
+            sync_rule_ids: Array.from(document.getElementById('sync_rule_ids').selectedOptions).map(option => Number(option.value)),
+        };
+
+        const response = await fetch('/rss/rule', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        });
+
+        const data = await response.json();
+        if (!data.success) {
+            alert(data.message || '保存规则失败');
+            return;
+        }
+
+        window.location.href = '/rss/dashboard?success=' + encodeURIComponent('规则保存成功');
+    }
+
+    function openRssConfigForRule(ruleId, configId) {
+        if (configId) {
+            editConfig(String(configId), String(ruleId));
+            return;
+        }
+
+        clearForm();
+        document.getElementById('configModalTitle').textContent = `创建规则 #${ruleId} 的 RSS 配置`;
+        const ruleSelect = document.getElementById('rule_id');
+        if (ruleSelect) {
+            ruleSelect.value = String(ruleId);
+        }
+        new bootstrap.Modal(document.getElementById('configModal')).show();
+    }
+
+    document.getElementById('ruleDeleteModal').addEventListener('show.bs.modal', function (event) {
+        const button = event.relatedTarget;
+        pendingDeleteRuleId = Number(button.getAttribute('data-rule-id'));
+    });
+
+    document.getElementById('ruleDeleteConfirmBtn').addEventListener('click', async function () {
+        if (!pendingDeleteRuleId) {
+            return;
+        }
+
+        const response = await fetch(`/rss/rule/${pendingDeleteRuleId}`, {
+            method: 'DELETE',
+        });
+        const data = await response.json();
+        if (!data.success) {
+            alert(data.message || '删除规则失败');
+            return;
+        }
+
+        window.location.href = '/rss/dashboard?success=' + encodeURIComponent('规则删除成功');
+    });
+
+    document.addEventListener('DOMContentLoaded', function () {
+        clearRuleForm();
+    });
+</script>

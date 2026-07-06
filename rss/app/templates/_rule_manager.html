@@ -1,0 +1,435 @@
+<div class="row mb-4 mt-5">
+    <div class="col">
+        <div class="d-flex justify-content-between align-items-center">
+            <h2>转发规则管理</h2>
+            <button class="btn btn-create animate__animated animate__fadeIn" data-bs-toggle="modal" data-bs-target="#ruleModal" onclick="clearRuleForm()">
+                <i class="bi bi-plus-circle"></i>
+                新建规则
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped" style="table-layout: auto;">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>源聊天</th>
+                        <th>目标聊天</th>
+                        <th>状态</th>
+                        <th>过滤模式</th>
+                        <th>关键词</th>
+                        <th>替换</th>
+                        <th>RSS</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for rule in forward_rules %}
+                    <tr>
+                        <td>{{ rule.id }}</td>
+                        <td class="name-cell">
+                            <span class="text-truncate">{{ rule.source_chat.name if rule.source_chat else "未设置" }}</span>
+                        </td>
+                        <td class="name-cell">
+                            <span class="text-truncate">{{ rule.target_chat.name if rule.target_chat else "未设置" }}</span>
+                        </td>
+                        <td>
+                            {% if rule.enable_rule %}
+                            <span class="badge bg-success">启用</span>
+                            {% else %}
+                            <span class="badge bg-secondary">停用</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="badge bg-info text-dark">{{ rule.forward_mode_label }}</span>
+                        </td>
+                        <td>
+                            <span class="badge bg-light text-dark">{{ rule.keyword_count }}</span>
+                        </td>
+                        <td>
+                            <span class="badge bg-light text-dark">{{ rule.replace_rule_count }}</span>
+                        </td>
+                        <td>
+                            {% if rule.rss_config_id %}
+                                {% if rule.rss_enabled %}
+                                <span class="badge bg-success">已启用</span>
+                                {% else %}
+                                <span class="badge bg-warning text-dark">已配置</span>
+                                {% endif %}
+                            {% else %}
+                            <span class="badge bg-secondary">未配置</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="btn-group" role="group">
+                                <button class="btn btn-sm btn-primary" onclick="editRule('{{ rule.id }}')">
+                                    <i class="bi bi-gear"></i> 编辑
+                                </button>
+                                <button class="btn btn-sm btn-info text-white" onclick="openRssConfigForRule('{{ rule.id }}', '{{ rule.rss_config_id or '' }}')">
+                                    <i class="bi bi-rss"></i> RSS
+                                </button>
+                                <button class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#ruleDeleteModal" data-rule-id="{{ rule.id }}">
+                                    <i class="bi bi-trash"></i> 删除
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="9" class="text-center">暂无转发规则</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="ruleModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="ruleModalTitle">新建转发规则</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="ruleForm">
+                    <input type="hidden" id="forward_rule_id">
+
+                    <div class="border rounded p-3 mb-3">
+                        <h5 class="mb-3">聊天绑定</h5>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label for="source_chat_id" class="form-label">源聊天</label>
+                                <select class="form-select" id="source_chat_id">
+                                    <option value="">请选择已知聊天</option>
+                                    {% for chat in known_chats %}
+                                    <option value="{{ chat.id }}">{{ chat.name }} ({{ chat.telegram_chat_id }})</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="target_chat_id" class="form-label">目标聊天</label>
+                                <select class="form-select" id="target_chat_id">
+                                    <option value="">请选择已知聊天</option>
+                                    {% for chat in known_chats %}
+                                    <option value="{{ chat.id }}">{{ chat.name }} ({{ chat.telegram_chat_id }})</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="source_manual_chat_id" class="form-label">手动填写源聊天 ID</label>
+                                <input type="text" class="form-control" id="source_manual_chat_id" placeholder="-100xxxxxxxxxx">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="source_manual_chat_name" class="form-label">手动填写源聊天名称</label>
+                                <input type="text" class="form-control" id="source_manual_chat_name" placeholder="源聊天备注名">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="target_manual_chat_id" class="form-label">手动填写目标聊天 ID</label>
+                                <input type="text" class="form-control" id="target_manual_chat_id" placeholder="-100xxxxxxxxxx">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="target_manual_chat_name" class="form-label">手动填写目标聊天名称</label>
+                                <input type="text" class="form-control" id="target_manual_chat_name" placeholder="目标聊天备注名">
+                            </div>
+                        </div>
+                        <div class="form-text mt-2">优先使用“手动填写”的聊天 ID；留空时会使用上面的已知聊天列表。</div>
+                    </div>
+
+                    <div class="border rounded p-3 mb-3">
+                        <h5 class="mb-3">基础设置</h5>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label for="forward_mode" class="form-label">过滤模式</label>
+                                <select class="form-select" id="forward_mode">
+                                    {% for option in rule_form_options.forward_modes %}
+                                    <option value="{{ option.value }}">{{ option.label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="add_mode" class="form-label">关键字添加模式</label>
+                                <select class="form-select" id="add_mode">
+                                    {% for option in rule_form_options.add_modes %}
+                                    <option value="{{ option.value }}">{{ option.label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="handle_mode" class="form-label">处理模式</label>
+                                <select class="form-select" id="handle_mode">
+                                    {% for option in rule_form_options.handle_modes %}
+                                    <option value="{{ option.value }}">{{ option.label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="message_mode" class="form-label">消息格式</label>
+                                <select class="form-select" id="message_mode">
+                                    {% for option in rule_form_options.message_modes %}
+                                    <option value="{{ option.value }}">{{ option.label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="is_preview" class="form-label">预览模式</label>
+                                <select class="form-select" id="is_preview">
+                                    {% for option in rule_form_options.preview_modes %}
+                                    <option value="{{ option.value }}">{{ option.label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="delay_seconds" class="form-label">延迟秒数</label>
+                                <input type="number" min="0" class="form-control" id="delay_seconds" value="5">
+                            </div>
+                        </div>
+
+                        <div class="row g-3 mt-2">
+                            <div class="col-md-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="enable_rule">
+                                    <label class="form-check-label" for="enable_rule">启用规则</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="use_bot">
+                                    <label class="form-check-label" for="use_bot">使用机器人发送</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="is_replace">
+                                    <label class="form-check-label" for="is_replace">启用替换规则</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="is_filter_user_info">
+                                    <label class="form-check-label" for="is_filter_user_info">过滤时附带发送者</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="is_original_link">
+                                    <label class="form-check-label" for="is_original_link">附带原始链接</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="is_original_sender">
+                                    <label class="form-check-label" for="is_original_sender">附带原始发送者</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="is_original_time">
+                                    <label class="form-check-label" for="is_original_time">附带发送时间</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="is_delete_original">
+                                    <label class="form-check-label" for="is_delete_original">删除原消息</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="enable_comment_button">
+                                    <label class="form-check-label" for="enable_comment_button">评论区按钮</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="enable_delay">
+                                    <label class="form-check-label" for="enable_delay">启用延迟</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="only_rss">
+                                    <label class="form-check-label" for="only_rss">只转发到 RSS</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="enable_sync">
+                                    <label class="form-check-label" for="enable_sync">启用规则同步</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="border rounded p-3 mb-3">
+                        <h5 class="mb-3">AI 与引用转发</h5>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label for="ai_model" class="form-label">AI 模型</label>
+                                <select class="form-select" id="ai_model">
+                                    <option value="">默认模型</option>
+                                    {% for model in ai_models %}
+                                    <option value="{{ model }}">{{ model }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="summary_time" class="form-label">总结时间</label>
+                                <input type="time" class="form-control" id="summary_time" value="07:00">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="sync_rule_ids" class="form-label">同步目标规则</label>
+                                <select class="form-select" id="sync_rule_ids" multiple size="4"></select>
+                            </div>
+                            <div class="col-md-12">
+                                <label for="ai_prompt" class="form-label">AI 提示词</label>
+                                <textarea class="form-control" id="ai_prompt" rows="4" placeholder="未填写则使用环境变量中的默认提示词"></textarea>
+                            </div>
+                            <div class="col-md-12">
+                                <label for="summary_prompt" class="form-label">AI 总结提示词</label>
+                                <textarea class="form-control" id="summary_prompt" rows="3" placeholder="未填写则使用环境变量中的默认总结提示词"></textarea>
+                            </div>
+                        </div>
+                        <div class="row g-3 mt-2">
+                            <div class="col-md-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="is_ai">
+                                    <label class="form-check-label" for="is_ai">启用 AI 处理</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="enable_ai_upload_image">
+                                    <label class="form-check-label" for="enable_ai_upload_image">AI 上传图片</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="is_keyword_after_ai">
+                                    <label class="form-check-label" for="is_keyword_after_ai">AI 后再过关键词</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="is_summary">
+                                    <label class="form-check-label" for="is_summary">启用 AI 总结</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="enable_reply_forward">
+                                    <label class="form-check-label" for="enable_reply_forward">启用引用转发</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="reply_forward_ai_check">
+                                    <label class="form-check-label" for="reply_forward_ai_check">引用消息继续走 AI</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="border rounded p-3 mb-3">
+                        <h5 class="mb-3">关键词管理</h5>
+                        <div class="row g-3 align-items-end">
+                            <div class="col-md-5">
+                                <label for="rule_keyword_input" class="form-label">关键字 / 正则</label>
+                                <input type="text" class="form-control" id="rule_keyword_input" placeholder="输入关键字或正则表达式">
+                            </div>
+                            <div class="col-md-3">
+                                <label for="rule_keyword_mode" class="form-label">所属列表</label>
+                                <select class="form-select" id="rule_keyword_mode">
+                                    <option value="whitelist">白名单</option>
+                                    <option value="blacklist">黑名单</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <div class="form-check form-switch mt-4">
+                                    <input class="form-check-input" type="checkbox" id="rule_keyword_regex">
+                                    <label class="form-check-label" for="rule_keyword_regex">正则</label>
+                                </div>
+                            </div>
+                            <div class="col-md-2">
+                                <button type="button" class="btn btn-primary w-100" onclick="addRuleKeyword()">
+                                    <i class="bi bi-plus-circle"></i> 添加
+                                </button>
+                            </div>
+                        </div>
+                        <div class="table-responsive mt-3">
+                            <table class="table table-sm table-striped" style="table-layout: auto;">
+                                <thead>
+                                    <tr>
+                                        <th>内容</th>
+                                        <th>列表</th>
+                                        <th>类型</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ruleKeywordsList"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="border rounded p-3">
+                        <h5 class="mb-3">替换规则管理</h5>
+                        <div class="row g-3 align-items-end">
+                            <div class="col-md-5">
+                                <label for="rule_replace_pattern" class="form-label">匹配规则</label>
+                                <input type="text" class="form-control" id="rule_replace_pattern" placeholder="支持正则表达式">
+                            </div>
+                            <div class="col-md-5">
+                                <label for="rule_replace_content" class="form-label">替换内容</label>
+                                <input type="text" class="form-control" id="rule_replace_content" placeholder="留空表示删除匹配内容">
+                            </div>
+                            <div class="col-md-2">
+                                <button type="button" class="btn btn-primary w-100" onclick="addRuleReplaceRule()">
+                                    <i class="bi bi-plus-circle"></i> 添加
+                                </button>
+                            </div>
+                        </div>
+                        <div class="table-responsive mt-3">
+                            <table class="table table-sm table-striped" style="table-layout: auto;">
+                                <thead>
+                                    <tr>
+                                        <th>匹配规则</th>
+                                        <th>替换内容</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ruleReplaceRulesList"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveRule()">保存规则</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="ruleDeleteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">确认删除规则</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                删除规则后，关联的关键词、替换规则和 RSS 配置也会一起删除。此操作不可撤销。
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-danger" id="ruleDeleteConfirmBtn">删除</button>
+            </div>
+        </div>
+    </div>
+</div>

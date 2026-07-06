@@ -37,13 +37,17 @@ class SenderFilter(BaseFilter):
         logger.info(f"Using parse mode: {parse_mode}")
 
         try:
-            reply_to_target_id = None
-            if getattr(rule, "enable_reply_forward", False) and getattr(event.message, "reply_to_msg_id", None):
+            reply_to_target_id = getattr(context, "reply_target_id", None)
+            if reply_to_target_id:
+                logger.info(f"Using cached reply target mapping: {reply_to_target_id}")
+            elif getattr(rule, "enable_reply_forward", False) and getattr(event.message, "reply_to_msg_id", None):
                 reply_to_target_id = await resolve_reply_target(
                     rule,
                     event.chat_id,
                     event.message.reply_to_msg_id,
                 )
+                if reply_to_target_id:
+                    logger.info(f"Resolved reply target mapping: {reply_to_target_id}")
 
             if context.is_media_group or (context.media_group_messages and context.skipped_media):
                 logger.info("Sending media group message")

@@ -14,6 +14,7 @@ from filters.init_filter import InitFilter
 from filters.reply_filter import ReplyFilter
 from filters.rss_filter import RSSFilter
 from filters.push_filter import PushFilter
+from filters.reply_trigger_filter import ReplyTriggerFilter
 logger = logging.getLogger(__name__)
 
 async def process_forward_rule(client, event, chat_id, rule):
@@ -39,6 +40,9 @@ async def process_forward_rule(client, event, chat_id, rule):
 
     # 延迟处理过滤器（如果启用了延迟处理）
     filter_chain.add_filter(DelayFilter())
+
+    # 引用触发过滤器（命中已转发映射时可跳过关键词/AI）
+    filter_chain.add_filter(ReplyTriggerFilter())
     
     # 添加关键字过滤器（如果消息不匹配关键字，会中断处理链）
     filter_chain.add_filter(KeywordFilter())

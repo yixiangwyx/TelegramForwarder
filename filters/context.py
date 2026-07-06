@@ -63,6 +63,14 @@ class MessageContext:
         
         # 评论区链接
         self.comment_link = None
+
+        # 引用转发相关状态
+        self.reply_source_id = None
+        self.reply_target_id = None
+        self.reply_text = ""
+        self.reply_matched_forward = False
+        self.skip_keyword_filter = False
+        self.skip_ai_filter = False
         
     def clone(self):
         """创建上下文的副本"""
