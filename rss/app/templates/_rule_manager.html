@@ -336,6 +336,57 @@
                     </div>
 
                     <div class="border rounded p-3 mb-3">
+                        <h5 class="mb-3">定时发布</h5>
+                        <div class="row g-3 align-items-end">
+                            <div class="col-md-3">
+                                <label for="scheduled_message_type" class="form-label">触发方式</label>
+                                <select class="form-select" id="scheduled_message_type" onchange="toggleScheduledMessageInputs()">
+                                    <option value="daily">每天固定时间</option>
+                                    <option value="interval_hours">每隔小时</option>
+                                    <option value="interval_minutes">每隔分钟</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2" id="scheduled_daily_time_group">
+                                <label for="scheduled_daily_time" class="form-label">时间</label>
+                                <input type="time" class="form-control" id="scheduled_daily_time" value="09:00">
+                            </div>
+                            <div class="col-md-2 d-none" id="scheduled_interval_group">
+                                <label for="scheduled_interval_value" class="form-label">间隔</label>
+                                <input type="number" min="1" class="form-control" id="scheduled_interval_value" value="1">
+                            </div>
+                            <div class="col-md-2">
+                                <div class="form-check form-switch mt-4">
+                                    <input class="form-check-input" type="checkbox" id="scheduled_enabled" checked>
+                                    <label class="form-check-label" for="scheduled_enabled">启用</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <button type="button" class="btn btn-primary w-100" onclick="addScheduledMessageConfig()">
+                                    <i class="bi bi-plus-circle"></i> 添加定时任务
+                                </button>
+                            </div>
+                            <div class="col-md-12">
+                                <label for="scheduled_message_text" class="form-label">消息内容</label>
+                                <textarea class="form-control" id="scheduled_message_text" rows="3" placeholder="到点后自动发布的消息内容"></textarea>
+                            </div>
+                        </div>
+                        <div class="table-responsive mt-3">
+                            <table class="table table-sm table-striped" style="table-layout: auto;">
+                                <thead>
+                                    <tr>
+                                        <th>状态</th>
+                                        <th>类型</th>
+                                        <th>时间/间隔</th>
+                                        <th>消息内容</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="scheduledMessageList"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="border rounded p-3 mb-3">
                         <h5 class="mb-3">关键词管理</h5>
                         <div class="row g-3 align-items-end">
                             <div class="col-md-5">

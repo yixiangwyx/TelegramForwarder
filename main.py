@@ -11,6 +11,7 @@ import uvicorn
 import multiprocessing
 from models.db_operations import DBOperations
 from scheduler.summary_scheduler import SummaryScheduler
+from scheduler.scheduled_message_scheduler import ScheduledMessageScheduler
 from scheduler.chat_updater import ChatUpdater
 from handlers.bot_handler import send_welcome_message
 from rss.main import app as rss_app
@@ -38,6 +39,7 @@ phone_number = os.getenv('PHONE_NUMBER')
 db_ops = None
 
 scheduler = None
+scheduled_message_scheduler = None
 chat_updater = None
 
 
@@ -79,7 +81,7 @@ def run_rss_server(host: str, port: int):
 
 async def start_clients():
     # 初始化 DBOperations
-    global db_ops, scheduler, chat_updater
+    global db_ops, scheduler, scheduled_message_scheduler, chat_updater
     db_ops = await DBOperations.create()
 
     try:
@@ -102,6 +104,9 @@ async def start_clients():
         # 创建并启动调度器
         scheduler = SummaryScheduler(user_client, bot_client)
         await scheduler.start()
+
+        scheduled_message_scheduler = ScheduledMessageScheduler(bot_client)
+        await scheduled_message_scheduler.start()
         
         # 创建并启动聊天信息更新器
         chat_updater = ChatUpdater(user_client)
@@ -142,6 +147,8 @@ async def start_clients():
         # 停止调度器
         if scheduler:
             scheduler.stop()
+        if scheduled_message_scheduler:
+            scheduled_message_scheduler.stop()
         # 停止聊天信息更新器
         if chat_updater:
             chat_updater.stop()

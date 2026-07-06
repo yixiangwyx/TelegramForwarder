@@ -92,6 +92,7 @@ class ForwardRule(Base):
     rss_config = relationship('RSSConfig', uselist=False, back_populates='rule', cascade="all, delete-orphan")
     rule_syncs = relationship('RuleSync', back_populates='rule', cascade="all, delete-orphan")
     push_config = relationship('PushConfig', uselist=False, back_populates='rule', cascade="all, delete-orphan")
+    scheduled_message_configs = relationship('ScheduledMessageConfig', back_populates='rule', cascade="all, delete-orphan")
 
     # 引用转发相关字段
     enable_reply_forward = Column(Boolean, default=False, nullable=False)
@@ -202,6 +203,22 @@ class PushConfig(Base):
     # 关系
     rule = relationship('ForwardRule', back_populates='push_config')
 
+
+class ScheduledMessageConfig(Base):
+    __tablename__ = 'scheduled_message_configs'
+
+    id = Column(Integer, primary_key=True)
+    rule_id = Column(Integer, ForeignKey('forward_rules.id'), nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    schedule_type = Column(String(32), nullable=False, default='daily')
+    interval_value = Column(Integer, nullable=True)
+    daily_time = Column(String(5), nullable=True)
+    message_text = Column(String, nullable=False)
+    next_run_at = Column(String(32), nullable=True)
+    last_sent_at = Column(String(32), nullable=True)
+
+    rule = relationship('ForwardRule', back_populates='scheduled_message_configs')
+
 class RSSConfig(Base):
     __tablename__ = 'rss_configs'
 
@@ -294,6 +311,11 @@ def migrate_db(engine):
             if 'push_configs' not in existing_tables:
                 logging.info("创建push_configs表...")
                 PushConfig.__table__.create(engine)
+
+            # 如果scheduled_message_configs表不存在，创建表
+            if 'scheduled_message_configs' not in existing_tables:
+                logging.info("创建scheduled_message_configs表...")
+                ScheduledMessageConfig.__table__.create(engine)
    
                 
             # 如果media_types表不存在，创建表

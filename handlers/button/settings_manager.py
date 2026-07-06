@@ -174,6 +174,24 @@ RULE_SETTINGS = {
         'toggle_action': 'toggle_enable_comment_button',
         'toggle_func': lambda current: not current
     },
+    'enable_reply_forward': {
+        'display_name': '启用引用转发',
+        'values': {
+            True: '开启',
+            False: '关闭'
+        },
+        'toggle_action': 'toggle_enable_reply_forward',
+        'toggle_func': lambda current: not current
+    },
+    'reply_forward_ai_check': {
+        'display_name': '引用消息继续走AI',
+        'values': {
+            True: '开启',
+            False: '关闭'
+        },
+        'toggle_action': 'toggle_reply_forward_ai_check',
+        'toggle_func': lambda current: not current
+    },
     'only_rss': {
         'display_name': '只转发到RSS',
         'values': {
@@ -443,6 +461,14 @@ PUSH_SETTINGS = {
     }
 }
 
+SCHEDULED_MESSAGE_SETTINGS = {
+    'scheduled_settings': {
+        'display_name': '⏰ 定时发布设置',
+        'toggle_action': 'scheduled_settings',
+        'toggle_func': None
+    }
+}
+
 async def create_settings_text(rule):
     """创建设置信息文本"""
     text = (
@@ -575,6 +601,17 @@ async def create_buttons(rule):
 
             ])
 
+            buttons.append([
+                Button.inline(
+                    f"↩️ 引用转发: {RULE_SETTINGS['enable_reply_forward']['values'][rule.enable_reply_forward]}",
+                    f"toggle_enable_reply_forward:{rule.id}"
+                ),
+                Button.inline(
+                    f"🧠 引用走AI: {RULE_SETTINGS['reply_forward_ai_check']['values'][rule.reply_forward_ai_check]}",
+                    f"toggle_reply_forward_ai_check:{rule.id}"
+                )
+            ])
+
             # 添加延迟过滤器按钮
             buttons.append([
                 Button.inline(
@@ -627,29 +664,30 @@ async def create_buttons(rule):
                 )
             ])
 
-    
-            buttons.append([
-                Button.inline(
-                    "🔔 推送设置",
-                    f"push_settings:{rule.id}"
-                )
-            ])
+        buttons.append([
+            Button.inline(
+                "🔔 推送设置",
+                f"push_settings:{rule.id}"
+            ),
+            Button.inline(
+                "⏰ 定时发布",
+                f"scheduled_settings:{rule.id}"
+            )
+        ])
 
-            buttons.append([
-                Button.inline(
-                    "👈 返回",
-                    "settings"
-                ),
-                Button.inline(
-                    "❌ 关闭",
-                    "close_settings"
-                )
-            ])
+        buttons.append([
+            Button.inline(
+                "👈 返回",
+                "settings"
+            ),
+            Button.inline(
+                "❌ 关闭",
+                "close_settings"
+            )
+        ])
 
 
     finally:
         session.close()
 
     return buttons
-
-

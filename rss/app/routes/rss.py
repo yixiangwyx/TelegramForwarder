@@ -11,6 +11,7 @@ from models.models import (
     Keyword,
     ReplaceRule,
     RuleSync,
+    ScheduledMessageConfig,
 )
 from models.db_operations import DBOperations
 from typing import Optional, List
@@ -107,6 +108,7 @@ def _serialize_rule_summary(rule: ForwardRule):
         "is_ai": rule.is_ai,
         "enable_delay": rule.enable_delay,
         "enable_sync": rule.enable_sync,
+        "scheduled_message_count": len(rule.scheduled_message_configs or []),
     }
 
 
@@ -145,6 +147,19 @@ def _serialize_rule_detail(rule: ForwardRule):
         "summary_prompt": rule.summary_prompt or "",
         "enable_reply_forward": rule.enable_reply_forward,
         "reply_forward_ai_check": rule.reply_forward_ai_check,
+        "scheduled_message_configs": [
+            {
+                "id": config.id,
+                "enabled": config.enabled,
+                "schedule_type": config.schedule_type,
+                "interval_value": config.interval_value,
+                "daily_time": config.daily_time or "",
+                "message_text": config.message_text or "",
+                "next_run_at": config.next_run_at or "",
+                "last_sent_at": config.last_sent_at or "",
+            }
+            for config in rule.scheduled_message_configs
+        ],
         "keywords": [
             {
                 "id": keyword.id,
@@ -306,6 +321,7 @@ async def rss_dashboard(request: Request, user = Depends(get_current_user)):
             joinedload(ForwardRule.rss_config),
             joinedload(ForwardRule.keywords),
             joinedload(ForwardRule.replace_rules),
+            joinedload(ForwardRule.scheduled_message_configs),
         ).all()
         
         # 将 ForwardRule 对象转换为字典列表
@@ -362,6 +378,7 @@ async def get_rule(rule_id: int, user = Depends(get_current_user)):
             joinedload(ForwardRule.keywords),
             joinedload(ForwardRule.replace_rules),
             joinedload(ForwardRule.rule_syncs),
+            joinedload(ForwardRule.scheduled_message_configs),
         ).filter(ForwardRule.id == rule_id).first()
 
         if not rule:
@@ -381,6 +398,7 @@ async def save_rule(request: Request, user = Depends(get_current_user)):
     rule_id = _parse_int(payload.get("rule_id"))
     keywords_data = _parse_json_list(payload.get("keywords"))
     replace_rules_data = _parse_json_list(payload.get("replace_rules"))
+    scheduled_message_configs_data = _parse_json_list(payload.get("scheduled_message_configs"))
     sync_rule_ids = [rule_id_value for rule_id_value in (_parse_int(item) for item in _parse_json_list(payload.get("sync_rule_ids"))) if rule_id_value]
 
     db_session = get_session()
@@ -505,6 +523,38 @@ async def save_rule(request: Request, user = Depends(get_current_user)):
                     continue
                 if db_session.query(ForwardRule).filter(ForwardRule.id == sync_rule_id).first():
                     db_session.add(RuleSync(rule_id=rule.id, sync_rule_id=sync_rule_id))
+
+        db_session.query(ScheduledMessageConfig).filter(
+            ScheduledMessageConfig.rule_id == rule.id
+        ).delete(synchronize_session=False)
+        for item in scheduled_message_configs_data:
+            schedule_type = (item.get("schedule_type") or "").strip()
+            message_text = (item.get("message_text") or "").strip()
+            if schedule_type not in {"daily", "interval_hours", "interval_minutes"} or not message_text:
+                continue
+
+            interval_value = _parse_int(item.get("interval_value"))
+            daily_time = (item.get("daily_time") or "").strip() or None
+            if schedule_type == "daily":
+                if not daily_time:
+                    continue
+                interval_value = None
+            else:
+                if interval_value is None or interval_value <= 0:
+                    continue
+                daily_time = None
+
+            db_session.add(
+                ScheduledMessageConfig(
+                    rule_id=rule.id,
+                    enabled=_parse_bool(item.get("enabled"), True),
+                    schedule_type=schedule_type,
+                    interval_value=interval_value,
+                    daily_time=daily_time,
+                    message_text=message_text,
+                    next_run_at=None,
+                )
+            )
 
         db_session.commit()
 

@@ -9,6 +9,8 @@ from utils.common import get_main_module
 import traceback
 from utils.auto_delete import send_message_and_delete
 from models.models import PushConfig
+from handlers.button.callback.scheduled_callback import save_scheduled_message_config, refresh_scheduled_rules
+from handlers.button.button_helpers import create_scheduled_settings_buttons
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +62,9 @@ async def handle_prompt_setting(event, client, sender_id, chat_id, current_state
         rule_id = current_state.split(":")[1]
         logger.info(f"检测到添加推送频道,规则ID:{rule_id}")
         return await handle_add_push_channel(event, client, sender_id, chat_id, rule_id, message)
+    elif current_state.startswith("add_scheduled_message:") or current_state.startswith("edit_scheduled_message:"):
+        logger.info(f"检测到定时发布配置状态:{current_state}")
+        return await handle_scheduled_message_setting(event, client, sender_id, chat_id, current_state, message)
     else:
         logger.info(f"未知的状态类型:{current_state}")
         return False
@@ -276,11 +281,66 @@ async def handle_add_push_channel(event, client, sender_id, chat_id, rule_id, me
                 f"添加推送频道失败: {message_text}",
                 buttons=await bot_handler.create_push_settings_buttons(rule_id)
             )
-        
         return True
     except Exception as e:
         logger.error(f"处理添加推送频道时出错: {str(e)}")
         logger.error(traceback.format_exc())
         return False
+    finally:
+        session.close()
+
+
+async def handle_scheduled_message_setting(event, client, sender_id, chat_id, current_state, message):
+    """处理定时发布配置输入"""
+    session = get_session()
+    try:
+        success, message_text, config_id, affected_rule_ids = await save_scheduled_message_config(
+            session,
+            current_state,
+            event.message.text or ""
+        )
+
+        if not success:
+            await client.send_message(chat_id, f"定时发布配置失败：{message_text}")
+            return True
+
+        state_manager.clear_state(sender_id, chat_id)
+
+        bot_client = await get_bot_client()
+        try:
+            await async_delete_user_message(bot_client, event.message.chat_id, event.message.id, 0)
+        except Exception as exc:
+            logger.error(f"删除用户消息失败: {str(exc)}")
+
+        await message.delete()
+        await refresh_scheduled_rules(affected_rule_ids)
+
+        main_rule_id = affected_rule_ids[0] if affected_rule_ids else None
+        if current_state.startswith("edit_scheduled_message:"):
+            session_refresh = get_session()
+            try:
+                from models.models import ScheduledMessageConfig
+                config = session_refresh.query(ScheduledMessageConfig).get(config_id)
+                rule_id = config.rule_id if config else main_rule_id
+            finally:
+                session_refresh.close()
+        else:
+            rule_id = int(current_state.split(":")[1])
+
+        await client.send_message(
+            chat_id,
+            f"{message_text}\n配置ID: `{config_id}`",
+            buttons=await create_scheduled_settings_buttons(rule_id),
+        )
+        return True
+    except Exception as exc:
+        logger.error(f"处理定时发布配置时发生错误: {str(exc)}")
+        logger.error(traceback.format_exc())
+        state_manager.clear_state(sender_id, chat_id)
+        await client.send_message(
+            chat_id,
+            "处理定时发布配置时出错，请检查输入格式或日志"
+        )
+        return True
     finally:
         session.close()

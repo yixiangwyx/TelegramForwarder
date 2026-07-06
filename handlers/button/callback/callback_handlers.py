@@ -7,6 +7,7 @@ from handlers.button.callback.ai_callback import *
 from handlers.button.callback.media_callback import *
 from handlers.button.callback.other_callback import *
 from handlers.button.callback.push_callback import *
+from handlers.button.callback.scheduled_callback import *
 import logging
 import aiohttp
 from utils.constants import RSS_HOST, RSS_PORT
@@ -698,4 +699,13 @@ CALLBACK_HANDLERS = {
     'toggle_media_send_mode': callback_toggle_media_send_mode,
     'delete_push_config': callback_delete_push_config,
     'push_page': callback_push_page,
+    # 定时发布设置
+    'scheduled_settings': callback_scheduled_settings,
+    'add_scheduled_message': callback_add_scheduled_message,
+    'edit_scheduled_config': callback_edit_scheduled_config,
+    'cancel_scheduled_message': callback_cancel_scheduled_message,
+    'toggle_scheduled_config': callback_toggle_scheduled_config,
+    'toggle_scheduled_config_status': callback_toggle_scheduled_config_status,
+    'delete_scheduled_config': callback_delete_scheduled_config,
+    'scheduled_page': callback_scheduled_page,
 }

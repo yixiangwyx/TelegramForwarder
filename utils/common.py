@@ -47,6 +47,12 @@ async def get_db_ops():
         main.db_ops = await main.init_db_ops()
     return main.db_ops
 
+
+async def get_scheduled_message_scheduler():
+    """获取 main.py 中的定时发布调度器实例"""
+    main = await get_main_module()
+    return getattr(main, 'scheduled_message_scheduler', None)
+
 async def get_user_id():
     """获取用户ID，确保环境变量已加载"""
     user_id_str = os.getenv('USER_ID')

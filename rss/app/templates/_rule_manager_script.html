@@ -3,10 +3,20 @@
     const knownChats = JSON.parse('{{ known_chats|tojson }}');
     let currentRuleKeywords = [];
     let currentRuleReplaceRules = [];
+    let currentRuleScheduledMessages = [];
     let pendingDeleteRuleId = null;
 
     function findRuleSummary(ruleId) {
         return ruleSummaries.find(rule => rule.id === Number(ruleId));
+    }
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     function setChecked(id, value) {
@@ -81,6 +91,103 @@
         });
     }
 
+    function scheduledTypeLabel(type) {
+        if (type === 'daily') return '每天固定时间';
+        if (type === 'interval_hours') return '每隔小时';
+        if (type === 'interval_minutes') return '每隔分钟';
+        return type || '未知';
+    }
+
+    function scheduledValueLabel(item) {
+        if (item.schedule_type === 'daily') {
+            return item.daily_time || '09:00';
+        }
+        if (item.schedule_type === 'interval_hours') {
+            return `${item.interval_value || 1} 小时`;
+        }
+        if (item.schedule_type === 'interval_minutes') {
+            return `${item.interval_value || 1} 分钟`;
+        }
+        return '-';
+    }
+
+    function toggleScheduledMessageInputs() {
+        const type = document.getElementById('scheduled_message_type').value;
+        document.getElementById('scheduled_daily_time_group').classList.toggle('d-none', type !== 'daily');
+        document.getElementById('scheduled_interval_group').classList.toggle('d-none', type === 'daily');
+    }
+
+    function renderScheduledMessageConfigs() {
+        const tbody = document.getElementById('scheduledMessageList');
+        tbody.innerHTML = '';
+
+        if (currentRuleScheduledMessages.length === 0) {
+            const row = document.createElement('tr');
+            row.innerHTML = '<td colspan="5" class="text-center">暂无定时发布配置</td>';
+            tbody.appendChild(row);
+            return;
+        }
+
+        currentRuleScheduledMessages.forEach((item, index) => {
+            const row = document.createElement('tr');
+            const messageText = item.message_text || '';
+            row.innerHTML = `
+                <td>${item.enabled ? '启用' : '停用'}</td>
+                <td>${scheduledTypeLabel(item.schedule_type)}</td>
+                <td>${scheduledValueLabel(item)}</td>
+                <td><div class="text-truncate" style="max-width: 320px;" title="${escapeHtml(messageText)}">${escapeHtml(messageText)}</div></td>
+                <td>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="removeScheduledMessageConfig(${index})">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+
+    function addScheduledMessageConfig() {
+        const scheduleType = document.getElementById('scheduled_message_type').value;
+        const dailyTime = document.getElementById('scheduled_daily_time').value;
+        const intervalValue = Number(document.getElementById('scheduled_interval_value').value || 0);
+        const enabled = document.getElementById('scheduled_enabled').checked;
+        const messageText = document.getElementById('scheduled_message_text').value.trim();
+
+        if (!messageText) {
+            alert('请输入定时发布的消息内容');
+            return;
+        }
+
+        if (scheduleType === 'daily' && !dailyTime) {
+            alert('请选择每天发布的时间');
+            return;
+        }
+
+        if (scheduleType !== 'daily' && intervalValue <= 0) {
+            alert('间隔必须大于 0');
+            return;
+        }
+
+        currentRuleScheduledMessages.push({
+            enabled,
+            schedule_type: scheduleType,
+            daily_time: scheduleType === 'daily' ? dailyTime : '',
+            interval_value: scheduleType === 'daily' ? null : intervalValue,
+            message_text: messageText,
+        });
+
+        document.getElementById('scheduled_message_text').value = '';
+        document.getElementById('scheduled_enabled').checked = true;
+        document.getElementById('scheduled_interval_value').value = '1';
+        document.getElementById('scheduled_daily_time').value = '09:00';
+        renderScheduledMessageConfigs();
+    }
+
+    function removeScheduledMessageConfig(index) {
+        currentRuleScheduledMessages.splice(index, 1);
+        renderScheduledMessageConfigs();
+    }
+
     function clearRuleForm() {
         document.getElementById('ruleModalTitle').textContent = '新建转发规则';
         document.getElementById('forward_rule_id').value = '';
@@ -105,6 +212,11 @@
         document.getElementById('rule_keyword_regex').checked = false;
         document.getElementById('rule_replace_pattern').value = '';
         document.getElementById('rule_replace_content').value = '';
+        document.getElementById('scheduled_message_type').value = 'daily';
+        document.getElementById('scheduled_daily_time').value = '09:00';
+        document.getElementById('scheduled_interval_value').value = '1';
+        document.getElementById('scheduled_message_text').value = '';
+        document.getElementById('scheduled_enabled').checked = true;
 
         setChecked('enable_rule', true);
         setChecked('use_bot', true);
@@ -127,9 +239,12 @@
 
         currentRuleKeywords = [];
         currentRuleReplaceRules = [];
+        currentRuleScheduledMessages = [];
         populateSyncRuleOptions(null, []);
         renderRuleKeywords();
         renderRuleReplaceRules();
+        toggleScheduledMessageInputs();
+        renderScheduledMessageConfigs();
     }
 
     function addRuleKeyword() {
@@ -245,9 +360,12 @@
 
         currentRuleKeywords = rule.keywords || [];
         currentRuleReplaceRules = rule.replace_rules || [];
+        currentRuleScheduledMessages = rule.scheduled_message_configs || [];
         populateSyncRuleOptions(rule.id, rule.sync_rule_ids || []);
         renderRuleKeywords();
         renderRuleReplaceRules();
+        toggleScheduledMessageInputs();
+        renderScheduledMessageConfigs();
 
         new bootstrap.Modal(document.getElementById('ruleModal')).show();
     }
@@ -291,6 +409,7 @@
             reply_forward_ai_check: document.getElementById('reply_forward_ai_check').checked,
             keywords: currentRuleKeywords,
             replace_rules: currentRuleReplaceRules,
+            scheduled_message_configs: currentRuleScheduledMessages,
             sync_rule_ids: Array.from(document.getElementById('sync_rule_ids').selectedOptions).map(option => Number(option.value)),
         };
 
@@ -350,5 +469,6 @@
 
     document.addEventListener('DOMContentLoaded', function () {
         clearRuleForm();
+        toggleScheduledMessageInputs();
     });
 </script>

@@ -23,6 +23,7 @@ RSS_ENABLED = os.getenv('RSS_ENABLED', 'false')
 RULES_PER_PAGE = int(os.getenv('RULES_PER_PAGE', 20))
 
 PUSH_CHANNEL_PER_PAGE = int(os.getenv('PUSH_CHANNEL_PER_PAGE', 10))
+SCHEDULED_MESSAGE_PER_PAGE = int(os.getenv('SCHEDULED_MESSAGE_PER_PAGE', 10))
 
 DEFAULT_TIMEZONE = os.getenv('DEFAULT_TIMEZONE', 'Asia/Shanghai')
 PROJECT_NAME = os.getenv('PROJECT_NAME', 'TG Forwarder RSS')
@@ -95,6 +96,14 @@ PUSH_SETTINGS_TEXT = """
 推送设置：
 请前往 https://github.com/caronc/apprise/wiki 查看添加推送配置格式说明
 如 `ntfy://ntfy.sh/你的主题名`
+"""
+
+SCHEDULED_MESSAGE_SETTINGS_TEXT = """
+定时发布设置：
+支持三种发布方式：
+1. 每天固定时间
+2. 每隔 N 小时
+3. 每隔 N 分钟
 """
 
 

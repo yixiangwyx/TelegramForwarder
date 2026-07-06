@@ -5,13 +5,39 @@ from handlers.button.settings_manager import AI_SETTINGS, AI_MODELS, MEDIA_SETTI
 from utils.common import get_db_ops
 from models.models import get_session
 from sqlalchemy import text
-from models.models import ForwardRule
+from models.models import ForwardRule, ScheduledMessageConfig
 
 SUMMARY_TIMES = load_summary_times()
 AI_MODELS= load_ai_models()
 DELAY_TIMES = load_delay_times()
 MEDIA_SIZE = load_max_media_size()
 MEDIA_EXTENSIONS = load_media_extensions()
+
+
+def get_scheduled_type_label(schedule_type):
+    return {
+        'daily': '每天固定时间',
+        'interval_hours': '每隔小时',
+        'interval_minutes': '每隔分钟',
+    }.get(schedule_type, schedule_type or '未知类型')
+
+
+def format_scheduled_config_summary(config):
+    schedule_desc = ''
+    if config.schedule_type == 'daily':
+        schedule_desc = f"每天 {config.daily_time or '09:00'}"
+    elif config.schedule_type == 'interval_hours':
+        schedule_desc = f"每隔 {config.interval_value or 1} 小时"
+    elif config.schedule_type == 'interval_minutes':
+        schedule_desc = f"每隔 {config.interval_value or 1} 分钟"
+    else:
+        schedule_desc = '未设置'
+
+    message_preview = (config.message_text or '').strip().replace('\n', ' ')
+    if len(message_preview) > 25:
+        message_preview = message_preview[:25] + '...'
+
+    return f"{'✅ ' if config.enabled else ''}{schedule_desc} | {message_preview or '空内容'}"
 async def create_ai_settings_buttons(rule=None,rule_id=None):
     """创建 AI 设置按钮"""
     buttons = []
@@ -763,4 +789,96 @@ async def create_push_config_details_buttons(config_id):
     finally:
         session.close()
     
+    return buttons
+
+
+async def create_scheduled_settings_buttons(rule_id, page=0):
+    """创建定时发布设置按钮菜单"""
+    buttons = []
+    configs_per_page = SCHEDULED_MESSAGE_PER_PAGE
+
+    session = get_session()
+    try:
+        rule = session.query(ForwardRule).get(rule_id)
+        if not rule:
+            buttons.append([Button.inline("❌ 规则不存在", "noop")])
+            buttons.append([Button.inline("关闭", "close_settings")])
+            return buttons
+
+        buttons.append([
+            Button.inline("➕ 添加定时发布", f"add_scheduled_message:{rule_id}")
+        ])
+
+        configs = session.query(ScheduledMessageConfig).filter(
+            ScheduledMessageConfig.rule_id == rule_id
+        ).order_by(ScheduledMessageConfig.id.desc()).all()
+
+        total_configs = len(configs)
+        total_pages = (total_configs + configs_per_page - 1) // configs_per_page
+        start_idx = page * configs_per_page
+        end_idx = min(start_idx + configs_per_page, total_configs)
+
+        for config in configs[start_idx:end_idx]:
+            buttons.append([
+                Button.inline(
+                    format_scheduled_config_summary(config),
+                    f"toggle_scheduled_config:{config.id}"
+                )
+            ])
+
+        if total_pages > 1:
+            nav_buttons = []
+            if page > 0:
+                nav_buttons.append(Button.inline("⬅️", f"scheduled_page:{rule_id}:{page-1}"))
+            else:
+                nav_buttons.append(Button.inline("⬅️", "noop"))
+
+            nav_buttons.append(Button.inline(f"{page+1}/{total_pages}", "noop"))
+
+            if page < total_pages - 1:
+                nav_buttons.append(Button.inline("➡️", f"scheduled_page:{rule_id}:{page+1}"))
+            else:
+                nav_buttons.append(Button.inline("➡️", "noop"))
+
+            buttons.append(nav_buttons)
+    finally:
+        session.close()
+
+    buttons.append([
+        Button.inline('👈 返回', f"rule_settings:{rule_id}"),
+        Button.inline('❌ 关闭', "close_settings")
+    ])
+    return buttons
+
+
+async def create_scheduled_config_details_buttons(config_id):
+    """创建定时发布详情按钮"""
+    buttons = []
+    session = get_session()
+    try:
+        config = session.query(ScheduledMessageConfig).get(config_id)
+        if not config:
+            buttons.append([Button.inline("❌ 配置不存在", "noop")])
+            buttons.append([Button.inline("关闭", "close_settings")])
+            return buttons
+
+        buttons.append([
+            Button.inline(
+                f"{'✅ ' if config.enabled else ''}启用定时发布",
+                f"toggle_scheduled_config_status:{config_id}"
+            )
+        ])
+        buttons.append([
+            Button.inline("✏️ 编辑配置", f"edit_scheduled_config:{config_id}")
+        ])
+        buttons.append([
+            Button.inline("🗑️ 删除配置", f"delete_scheduled_config:{config_id}")
+        ])
+        buttons.append([
+            Button.inline("👈 返回", f"scheduled_settings:{config.rule_id}"),
+            Button.inline("❌ 关闭", "close_settings")
+        ])
+    finally:
+        session.close()
+
     return buttons
