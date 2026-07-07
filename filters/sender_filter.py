@@ -6,6 +6,7 @@ from telethon.errors import FloodWaitError
 from enums.enums import PreviewMode
 from filters.base_filter import BaseFilter
 from utils.common import record_forwarded_message, resolve_reply_target
+from utils.image_cropper import crop_image_file, load_crop_settings_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -124,18 +125,20 @@ class SenderFilter(BaseFilter):
 
         files = []
         try:
-            for message in context.media_group_messages:
-                if message.media:
-                    file_path = await message.download_media(os.path.join(os.getcwd(), "temp"))
-                    if file_path:
-                        files.append(file_path)
+            if context.media_files:
+                files = list(context.media_files)
+            else:
+                for message in context.media_group_messages:
+                    if message.media:
+                        file_path = await message.download_media(os.path.join(os.getcwd(), "temp"))
+                        if file_path:
+                            crop_image_file(file_path, settings=load_crop_settings_from_env())
+                            files.append(file_path)
 
             if not files:
                 return
 
-            if not hasattr(context, "media_files") or context.media_files is None:
-                context.media_files = []
-            context.media_files.extend(files)
+            context.media_files = list(files)
 
             caption_text = (context.sender_info or "") + (context.message_text or "")
             for _, size, name in context.skipped_media:

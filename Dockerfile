@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y \
 # 复制依赖文件并安装
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir Pillow
 
 # 创建临时文件目录
 RUN mkdir -p /app/temp

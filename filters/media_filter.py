@@ -3,6 +3,7 @@ import os
 import asyncio
 from utils.media import get_media_size
 from utils.constants import TEMP_DIR
+from utils.image_cropper import crop_image_file, load_crop_settings_from_env
 from filters.base_filter import BaseFilter
 from utils.media import get_max_media_size
 from enums.enums import PreviewMode
@@ -111,6 +112,17 @@ class MediaFilter(BaseFilter):
                             logger.info(f'媒体文件 {file_name} 超过大小限制 ({rule.max_media_size}MB)')
                             context.skipped_media.append((message, file_size, file_name))
                             continue
+
+                        if not rule.only_rss:
+                            try:
+                                file_path = await message.download_media(TEMP_DIR)
+                                if file_path:
+                                    await self._maybe_crop_downloaded_file(file_path)
+                                    context.media_files.append(file_path)
+                                    logger.info(f'媒体组文件已下载到: {file_path}')
+                            except Exception as e:
+                                logger.error(f'下载媒体组文件时出错: {str(e)}')
+                                context.errors.append(f"下载媒体组文件错误: {str(e)}")
                     
                     context.media_group_messages.append(message)
                     logger.info(f'找到媒体组消息: ID={message.id}, 类型={type(message.media).__name__ if message.media else "无媒体"}')
@@ -243,6 +255,7 @@ class MediaFilter(BaseFilter):
                     # 下载媒体文件
                     file_path = await event.message.download_media(TEMP_DIR)
                     if file_path:
+                        await self._maybe_crop_downloaded_file(file_path)
                         context.media_files.append(file_path)
                         logger.info(f'媒体文件已下载到: {file_path}')
                 except Exception as e:
@@ -286,6 +299,16 @@ class MediaFilter(BaseFilter):
             return True
         
         return False 
+
+    async def _maybe_crop_downloaded_file(self, file_path):
+        try:
+            crop_result = crop_image_file(file_path, settings=load_crop_settings_from_env())
+            if crop_result and crop_result.get("changed"):
+                logger.info(
+                    f"媒体图片已裁剪: {crop_result['original_size']} -> {crop_result['cropped_size']}"
+                )
+        except Exception as e:
+            logger.error(f'裁剪媒体图片时出错: {str(e)}')
     
     async def _is_media_extension_allowed(self, rule, media):
         """
@@ -360,4 +383,3 @@ class MediaFilter(BaseFilter):
             session.close()
             
         return allowed
-
