@@ -42,7 +42,8 @@ AI_MODELS_CONFIG = {
         "grok-2-latest"
     ],
     "deepseek": [
-        "deepseek-chat"
+        "deepseek-chat",
+        "deepseek-v4-flash"
     ],
     "claude": [
         "claude-3-7-sonnet-latest",
