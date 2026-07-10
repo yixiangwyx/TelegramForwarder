@@ -3,6 +3,8 @@ import os
 import pytz
 import asyncio
 import apprise
+import aiohttp
+import json
 from datetime import datetime
 import traceback
 
@@ -11,6 +13,79 @@ from models.models import get_session, PushConfig
 from enums.enums import PreviewMode
 
 logger = logging.getLogger(__name__)
+
+API_PUSH_SCHEMES = ("api://", "apis://")
+
+
+def is_api_push_channel(value):
+    return isinstance(value, str) and value.startswith(API_PUSH_SCHEMES)
+
+
+def normalize_api_push_url(value):
+    if not isinstance(value, str):
+        return ""
+    if value.startswith("api://"):
+        return f"http://{value[len('api://'):]}"
+    if value.startswith("apis://"):
+        return f"https://{value[len('apis://'):]}"
+    return value
+
+
+def build_original_link(chat_id, message_id):
+    chat_id_text = str(chat_id or "").strip()
+    if chat_id_text.startswith("-100") and message_id:
+        return f"https://t.me/c/{chat_id_text[4:]}/{message_id}"
+    return ""
+
+
+def safe_display_name(value, fallback=""):
+    return str(value or "").strip() or fallback
+
+
+def resolve_chat_name(context):
+    rule = getattr(context, "rule", None)
+    event = getattr(context, "event", None)
+    source_chat = getattr(rule, "source_chat", None)
+    if source_chat and getattr(source_chat, "name", None):
+        return safe_display_name(source_chat.name)
+    chat = getattr(event, "chat", None)
+    if chat is not None:
+        if getattr(chat, "title", None):
+            return safe_display_name(chat.title)
+        first_name = safe_display_name(getattr(chat, "first_name", ""))
+        last_name = safe_display_name(getattr(chat, "last_name", ""))
+        full_name = " ".join(item for item in [first_name, last_name] if item).strip()
+        if full_name:
+            return full_name
+    return ""
+
+
+def resolve_sender_metadata(event):
+    sender_name = ""
+    sender_id = ""
+    sender_type = ""
+
+    if hasattr(event.message, "sender_chat") and event.message.sender_chat:
+        sender = event.message.sender_chat
+        sender_name = safe_display_name(getattr(sender, "title", ""))
+        sender_id = safe_display_name(getattr(sender, "id", ""))
+        sender_type = "chat"
+    elif getattr(event, "sender", None):
+        sender = event.sender
+        if getattr(sender, "title", None):
+            sender_name = safe_display_name(sender.title)
+        else:
+            first_name = safe_display_name(getattr(sender, "first_name", ""))
+            last_name = safe_display_name(getattr(sender, "last_name", ""))
+            sender_name = " ".join(item for item in [first_name, last_name] if item).strip()
+        sender_id = safe_display_name(getattr(sender, "id", ""))
+        sender_type = "user"
+
+    return {
+        "sender_name": sender_name,
+        "sender_id": sender_id,
+        "sender_type": sender_type
+    }
 
 class PushFilter(BaseFilter):
     """
@@ -127,7 +202,7 @@ class PushFilter(BaseFilter):
                     text_to_send += context.original_link
                 
                 # 发送文本推送
-                await self._send_push_notification(push_configs, text_to_send)
+                await self._send_push_notification(push_configs, text_to_send, context=context)
                 return
             
             # 检查是否有媒体组消息但没有媒体文件（这是关键修复）
@@ -199,7 +274,8 @@ class PushFilter(BaseFilter):
                                 [config], 
                                 caption_text or f"收到一组媒体文件 (共{len(valid_files)}个)", 
                                 None,  # 不使用单附件参数
-                                valid_files  # 使用多附件参数
+                                valid_files,  # 使用多附件参数
+                                context=context
                             )
                             processed_files.extend(valid_files)
                         except Exception as e:
@@ -208,7 +284,7 @@ class PushFilter(BaseFilter):
                             for i, file_path in enumerate(valid_files):
                                 # 第一个文件使用完整文本，后续文件使用简短描述
                                 file_caption = caption_text if i == 0 else f"媒体组的第 {i+1} 个文件"
-                                await self._send_push_notification([config], file_caption, file_path)
+                                await self._send_push_notification([config], file_caption, file_path, context=context)
                                 processed_files.append(file_path)
                     # 逐个发送文件
                     else:
@@ -219,7 +295,7 @@ class PushFilter(BaseFilter):
                             else:
                                 file_caption = f"媒体组的第 {i+1} 个文件" if len(valid_files) > 1 else ""
                             
-                            await self._send_push_notification([config], file_caption, file_path)
+                            await self._send_push_notification([config], file_caption, file_path, context=context)
                             processed_files.append(file_path)
                 
         except Exception as e:
@@ -277,7 +353,7 @@ class PushFilter(BaseFilter):
                 text_to_send += original_link
             
             # 发送文本推送
-            await self._send_push_notification(push_configs, text_to_send)
+            await self._send_push_notification(push_configs, text_to_send, context=context)
             return processed_files
         
         # 处理媒体文件
@@ -330,7 +406,7 @@ class PushFilter(BaseFilter):
                         #     caption = f"收到一个文件 ({ext})"
                     
                     # 发送推送
-                    await self._send_push_notification(push_configs, caption, file_path)
+                    await self._send_push_notification(push_configs, caption, file_path, context=context)
                     # 添加到已处理文件列表
                     processed_files.append(file_path)
                     
@@ -379,13 +455,115 @@ class PushFilter(BaseFilter):
             message_text += context.original_link
         
         # 发送推送
-        await self._send_push_notification(push_configs, message_text)
+        await self._send_push_notification(push_configs, message_text, context=context)
         logger.info(f'文本消息推送已发送')
         
         # 返回空列表，表示没有处理任何文件
         return []
     
-    async def _send_push_notification(self, push_configs, body, attachment=None, all_attachments=None):
+    async def _build_api_payload(self, context, body):
+        event = context.event
+        rule = context.rule
+        source_chat_id = safe_display_name(getattr(event, "chat_id", ""))
+        source_name = resolve_chat_name(context)
+        sender_meta = resolve_sender_metadata(event)
+        original_link = build_original_link(getattr(event, "chat_id", ""), getattr(event.message, "id", ""))
+        raw_message = context.original_message_text or context.message_text or body or ""
+        processed_message = context.message_text or ""
+        reply_source_message_id = safe_display_name(getattr(event.message, "reply_to_msg_id", ""))
+        reply_preview_text = safe_display_name(getattr(context, "reply_text", ""))
+        reply_has_media = False
+
+        if reply_source_message_id and not reply_preview_text:
+            try:
+                reply_message = await event.message.get_reply_message()
+            except Exception:
+                reply_message = None
+            if reply_message is not None:
+                reply_preview_text = safe_display_name(getattr(reply_message, "text", "")) or safe_display_name(getattr(reply_message, "message", ""))
+                reply_has_media = bool(getattr(reply_message, "media", None))
+
+        payload = {
+            "version": "1.0",
+            "type": "info",
+            "title": "",
+            "message": raw_message,
+            "processed_message": processed_message,
+            "delivery_text": body or "",
+            "source_type": "telegram",
+            "source_name": source_name,
+            "source_channel": source_name,
+            "source_chat_id": source_chat_id,
+            "source_message_id": safe_display_name(getattr(event.message, "id", "")),
+            "sender_name": sender_meta["sender_name"],
+            "sender_id": sender_meta["sender_id"],
+            "sender_type": sender_meta["sender_type"],
+            "rule_id": getattr(rule, "id", None),
+            "collected_at": datetime.utcnow().isoformat() + "Z",
+            "original_link": original_link,
+            "has_media": bool(context.media_files or getattr(event.message, "media", None)),
+            "is_reply_message": bool(reply_source_message_id),
+            "reply_to_source_message_id": reply_source_message_id,
+            "reply_preview_text": reply_preview_text,
+            "reply_has_media": reply_has_media,
+            "reply_matched_forward": bool(getattr(context, "reply_matched_forward", False)),
+            "attachments": []
+        }
+
+        if getattr(rule, "source_chat", None) is not None:
+            payload["source_chat_db_id"] = getattr(rule.source_chat, "id", None)
+            payload["source_chat_db_name"] = safe_display_name(getattr(rule.source_chat, "name", ""))
+
+        return payload
+
+    async def _send_api_push_notification(self, service_url, context, body, attachment=None, all_attachments=None):
+        url = normalize_api_push_url(service_url)
+        payload = await self._build_api_payload(context, body)
+        attachments = [path for path in (all_attachments or []) if path and os.path.exists(str(path))]
+        if attachment and os.path.exists(str(attachment)):
+            attachments.append(attachment)
+
+        timeout = aiohttp.ClientTimeout(total=120)
+        file_handles = []
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                if attachments:
+                    form = aiohttp.FormData()
+                    for key, value in payload.items():
+                        if value is None:
+                            continue
+                        if isinstance(value, (dict, list)):
+                            form.add_field(key, json.dumps(value, ensure_ascii=False))
+                        else:
+                            form.add_field(key, str(value))
+                    for index, file_path in enumerate(attachments, start=1):
+                        file_handle = open(file_path, "rb")
+                        file_handles.append(file_handle)
+                        form.add_field(
+                            f"file{index:02d}",
+                            file_handle,
+                            filename=os.path.basename(str(file_path)),
+                            content_type="application/octet-stream"
+                        )
+                    response = await session.post(url, data=form)
+                else:
+                    response = await session.post(url, json=payload)
+
+                response_text = await response.text()
+                if response.status < 200 or response.status >= 300:
+                    raise RuntimeError(f"API推送失败({response.status}): {response_text[:1000]}")
+
+                logger.info(f'API推送发送成功: {url} -> {response.status}')
+                if response_text.strip():
+                    logger.info(f'API推送响应: {response_text[:500]}')
+        finally:
+            for file_handle in file_handles:
+                try:
+                    file_handle.close()
+                except Exception:
+                    pass
+
+    async def _send_push_notification(self, push_configs, body, attachment=None, all_attachments=None, context=None):
         """发送推送通知"""
         if not body and not attachment and not all_attachments:
             logger.warning('没有内容可推送')
@@ -393,11 +571,22 @@ class PushFilter(BaseFilter):
         
         for config in push_configs:
             try:
+                service_url = config.push_channel
+                if is_api_push_channel(service_url):
+                    logger.info(f'使用结构化API推送: {service_url}')
+                    await self._send_api_push_notification(
+                        service_url,
+                        context,
+                        body,
+                        attachment,
+                        all_attachments
+                    )
+                    continue
+
                 # 创建Apprise对象
                 apobj = apprise.Apprise()
                 
                 # 添加推送服务
-                service_url = config.push_channel
                 if apobj.add(service_url):
                     logger.info(f'成功添加推送服务: {service_url}')
                 else:

@@ -96,6 +96,11 @@ PUSH_SETTINGS_TEXT = """
 推送设置：
 请前往 https://github.com/caronc/apprise/wiki 查看添加推送配置格式说明
 如 `ntfy://ntfy.sh/你的主题名`
+
+也支持独立结构化 API 推送，不走 Apprise：
+`api://你的服务器:端口/api/external-signals/intake`
+或
+`apis://你的域名/api/external-signals/intake`
 """
 
 SCHEDULED_MESSAGE_SETTINGS_TEXT = """

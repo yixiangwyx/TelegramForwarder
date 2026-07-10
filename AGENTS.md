@@ -7,7 +7,7 @@ Preferred path:
   directly.
 
 Fallback path when the tools are not surfaced directly:
-- The hindsight MCP server is expected at `http://113.20.8.210:7777/mcp/hermes`
+- The hindsight MCP server is expected at `http://localhost:8888/mcp/hermes`
   from `~/.codex/config.toml`.
 - Use raw MCP over HTTP from the terminal: first call `initialize`, capture the
   `mcp-session-id` response header, then send `notifications/initialized`, and
@@ -23,13 +23,13 @@ Fallback path when the tools are not surfaced directly:
 Minimal raw MCP flow example:
 ```sh
 session_id=$(curl -sS -D - -o /tmp/hindsight-init.txt \
-  -X POST http://113.20.8.210:7777/mcp/hermes \
+  -X POST http://localhost:8888/mcp/hermes \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"codex","version":"1.0"}}}' \
   | awk 'BEGIN{IGNORECASE=1} /^mcp-session-id:/ {print $2}' | tr -d '\r')
 
-curl -sS -X POST http://113.20.8.210:7777/mcp/hermes \
+curl -sS -X POST http://localhost:8888/mcp/hermes \
   -H 'Content-Type: application/json' \
   -H "mcp-session-id: $session_id" \
   --data '{"jsonrpc":"2.0","method":"notifications/initialized"}' >/dev/null
@@ -37,7 +37,7 @@ curl -sS -X POST http://113.20.8.210:7777/mcp/hermes \
 payload=$(jq -nc --arg query 'summarize the current task here' \
   '{jsonrpc:"2.0",id:2,method:"tools/call",params:{name:"recall",arguments:{query:$query,budget:"high",max_tokens:1200}}}')
 
-curl -sS -X POST http://113.20.8.210:7777/mcp/hermes \
+curl -sS -X POST http://localhost:8888/mcp/hermes \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -H "mcp-session-id: $session_id" \

@@ -20,6 +20,9 @@ AI_MODELS_CONFIG = {
         "o1-preview",
         "o3-mini"
     ],
+    "nvidia": [
+        "openai/gpt-oss-120b"
+    ],
     "gemini": [
         'gemini-2.5-pro-exp-03-25',
         "gemini-2.0-flash",
@@ -278,4 +281,4 @@ def create_default_configs():
                 json.dump(AI_MODELS_CONFIG, f, ensure_ascii=False, indent=4)
             logger.info("Created ai_models.json")
         except Exception as e:
-            logger.error(f"创建 ai_models.json 失败: {e}") 
+            logger.error(f"创建 ai_models.json 失败: {e}")

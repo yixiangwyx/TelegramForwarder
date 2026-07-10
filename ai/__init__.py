@@ -5,6 +5,7 @@ from .deepseek_provider import DeepSeekProvider
 from .qwen_provider import QwenProvider
 from .grok_provider import GrokProvider
 from .claude_provider import ClaudeProvider
+from .nvidia_provider import NvidiaProvider
 import os
 import logging
 from utils.settings import load_ai_models
@@ -40,6 +41,8 @@ async def get_ai_provider(model=None):
                 provider = GrokProvider()
             elif provider_name == "claude":
                 provider = ClaudeProvider()
+            elif provider_name == "nvidia":
+                provider = NvidiaProvider()
             break
     
     if not provider:
@@ -56,5 +59,6 @@ __all__ = [
     'QwenProvider',
     'GrokProvider',
     'ClaudeProvider',
+    'NvidiaProvider',
     'get_ai_provider'
 ]
