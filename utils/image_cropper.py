@@ -338,7 +338,7 @@ def _score_qr_candidate(pixels, x0: int, y0: int, x1: int, y1: int, settings: Im
     box_height = y1 - y0 + 1
     step_x = max(1, box_width // 48)
     step_y = max(1, box_height // 48)
-    dark_count = 0
+    sampled_values = []
     light_count = 0
     samples = 0
 
@@ -346,15 +346,31 @@ def _score_qr_candidate(pixels, x0: int, y0: int, x1: int, y1: int, settings: Im
         for x in range(x0, x1 + 1, step_x):
             samples += 1
             value = pixels[x, y]
-            if value <= settings.qr_dark_threshold:
-                dark_count += 1
+            sampled_values.append(value)
             if value >= settings.qr_bright_threshold:
                 light_count += 1
 
     if samples == 0:
         return None
 
-    dark_ratio = dark_count / samples
+    dark_threshold = settings.qr_dark_threshold
+    dark_ratio = sum(value <= dark_threshold for value in sampled_values) / samples
+    if dark_ratio < 0.10:
+        # Some QR codes use a colored foreground (for example gold on a
+        # slightly lighter gold background). In grayscale both colors can be
+        # brighter than the fixed dark threshold, even though their local
+        # contrast still clearly describes the QR pattern.
+        value_range = max(sampled_values) - min(sampled_values)
+        if value_range >= 24:
+            adaptive_threshold = min(
+                settings.qr_bright_threshold - 1,
+                max(settings.qr_dark_threshold, min(sampled_values) + int(value_range * 0.35)),
+            )
+            adaptive_dark_ratio = sum(value <= adaptive_threshold for value in sampled_values) / samples
+            if adaptive_dark_ratio >= 0.10:
+                dark_threshold = adaptive_threshold
+                dark_ratio = adaptive_dark_ratio
+
     light_ratio = light_count / samples
     if dark_ratio < 0.10 or dark_ratio > 0.70:
         return None
@@ -367,7 +383,7 @@ def _score_qr_candidate(pixels, x0: int, y0: int, x1: int, y1: int, settings: Im
         y0,
         x1,
         y1,
-        settings.qr_dark_threshold,
+        dark_threshold,
     )
     if transition_density < settings.qr_min_transition_density:
         return None
