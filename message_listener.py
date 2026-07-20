@@ -1,5 +1,5 @@
 from telethon import events
-from models.models import get_session, Chat, ForwardRule
+from models.models import get_session, Chat, ForwardRule, ForwardedMessageMap
 import logging
 from handlers import user_handler, bot_handler
 from handlers.prompt_handlers import handle_prompt_setting
@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 from telethon.tl.types import ChannelParticipantsAdmins
 from managers.state_manager import state_manager
 from telethon.tl import types
-from filters.process import process_forward_rule
+from filters.process import process_forward_rule, process_forwarded_message_edit
+from enums.enums import PreviewMode
 # 加载环境变量
 load_dotenv()
 
@@ -58,6 +59,10 @@ async def setup_listeners(user_client, bot_client):
     @user_client.on(events.NewMessage(func=not_from_bot))
     async def user_message_handler(event):
         await handle_user_message(event, user_client, bot_client)
+
+    @user_client.on(events.MessageEdited(func=not_from_bot))
+    async def user_message_edited_handler(event):
+        await handle_edited_message(event, user_client, bot_client)
     
     # 机器人客户端监听器 - 使用过滤器
     @bot_client.on(events.NewMessage(func=not_from_bot))
@@ -163,6 +168,65 @@ async def handle_user_message(event, user_client, bot_client):
     finally:
         session.close()
 
+async def handle_edited_message(event, user_client, bot_client):
+    """把源聊天中已转发消息的后续编辑同步到对应目标消息。"""
+    chat = await event.get_chat()
+    chat_id = abs(chat.id)
+    if isinstance(event.chat, types.Channel):
+        chat_id = int(f"100{chat_id}")
+
+    session = get_session()
+    try:
+        source_chat = session.query(Chat).filter(
+            Chat.telegram_chat_id == str(chat_id)
+        ).first()
+        if not source_chat:
+            return
+
+        rules = session.query(ForwardRule).filter(
+            ForwardRule.source_chat_id == source_chat.id,
+            ForwardRule.enable_rule.is_(True),
+        ).all()
+
+        for rule in rules:
+            mapping = session.query(ForwardedMessageMap).filter(
+                ForwardedMessageMap.rule_id == rule.id,
+                ForwardedMessageMap.source_chat_telegram_id == str(event.chat_id),
+                ForwardedMessageMap.source_message_id == event.message.id,
+            ).first()
+            if not mapping:
+                continue
+
+            client = bot_client if rule.use_bot else user_client
+            processed_text = await process_forwarded_message_edit(
+                client, event, str(chat_id), rule
+            )
+            if processed_text is None:
+                continue
+
+            await client.edit_message(
+                int(mapping.target_chat_telegram_id),
+                mapping.target_message_id,
+                text=processed_text,
+                parse_mode=rule.message_mode.value,
+                link_preview={
+                    PreviewMode.ON: True,
+                    PreviewMode.OFF: False,
+                    PreviewMode.FOLLOW: event.message.media is not None,
+                }[rule.is_preview],
+            )
+            logger.info(
+                "已同步源消息编辑: rule_id=%s, source_msg_id=%s, target_msg_id=%s",
+                rule.id,
+                event.message.id,
+                mapping.target_message_id,
+            )
+    except Exception as e:
+        logger.error(f"同步源消息编辑时发生错误: {str(e)}")
+        logger.exception(e)
+    finally:
+        session.close()
+
 async def handle_bot_message(event, bot_client):
     """处理机器人客户端收到的消息（命令）"""
     try:
@@ -207,4 +271,3 @@ async def clear_group_cache(group_key, delay=300):  # 5分钟后清除缓存
     """清除已处理的媒体组记录"""
     await asyncio.sleep(delay)
     PROCESSED_GROUPS.discard(group_key) 
-

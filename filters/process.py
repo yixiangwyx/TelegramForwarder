@@ -15,7 +15,36 @@ from filters.reply_filter import ReplyFilter
 from filters.rss_filter import RSSFilter
 from filters.push_filter import PushFilter
 from filters.reply_trigger_filter import ReplyTriggerFilter
+from filters.context import MessageContext
 logger = logging.getLogger(__name__)
+
+async def process_forwarded_message_edit(client, event, chat_id, rule):
+    """重新处理已转发消息的编辑内容，并返回目标消息应使用的文本。"""
+    context = MessageContext(client, event, chat_id, rule)
+
+    # 编辑同步只重新计算会影响文本的过滤器。媒体下载、RSS、推送和发送
+    # 不能在这里执行，否则源消息每次编辑都会产生重复消息或重复推送。
+    text_filters = (
+        KeywordFilter(),
+        ReplaceFilter(),
+        AIFilter(),
+        InfoFilter(),
+    )
+    for filter_obj in text_filters:
+        should_continue = await filter_obj.process(context)
+        if not should_continue:
+            logger.info(
+                "编辑后的消息未通过过滤器 %s，保留现有目标消息",
+                filter_obj.name,
+            )
+            return None
+
+    return (
+        (context.sender_info or "")
+        + (context.message_text or "")
+        + (context.time_info or "")
+        + (context.original_link or "")
+    )
 
 async def process_forward_rule(client, event, chat_id, rule):
     """
