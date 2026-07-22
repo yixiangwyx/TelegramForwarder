@@ -470,11 +470,14 @@ class PushFilter(BaseFilter):
         original_link = build_original_link(getattr(event, "chat_id", ""), getattr(event.message, "id", ""))
         raw_message = context.original_message_text or context.message_text or body or ""
         processed_message = context.message_text or ""
-        reply_source_message_id = safe_display_name(getattr(event.message, "reply_to_msg_id", ""))
+        direct_reply_source_message_id = safe_display_name(getattr(event.message, "reply_to_msg_id", ""))
+        reply_source_message_id = safe_display_name(
+            getattr(context, "reply_source_id", "") or direct_reply_source_message_id
+        )
         reply_preview_text = safe_display_name(getattr(context, "reply_text", ""))
         reply_has_media = False
 
-        if reply_source_message_id and not reply_preview_text:
+        if direct_reply_source_message_id and not reply_preview_text:
             try:
                 reply_message = await event.message.get_reply_message()
             except Exception:
